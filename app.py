@@ -122,81 +122,81 @@ if 'news_results' in st.session_state and st.session_state['news_results']:
         st.markdown(f"[קרא מקור]({selected_article['url']})")
 
         # כפתור הניתוח
+        # כפתור הניתוח
         if st.button("🚨 נתח אירוע והכן תגובה", type="primary"):
             st.session_state['analyzing'] = True
             st.session_state['current_article'] = selected_article
 
             # --- שלב ב': הניתוח (המוח) ---
+            # שינוי לפרומפט: מגדירים במפורש את מבנה ה-JSON הרצוי
             prompt = f"""
-            אתה מנהל משברים מומחה.
-            נתח את הידיעה: "{selected_article['title']}: {selected_article['body']}" עבור חברת {company_name}.
+                    אתה מנהל משברים מומחה.
+                    נתח את הידיעה: "{selected_article['title']}: {selected_article['body']}" עבור חברת {company_name}.
 
-            החזר תשובה בפורמט JSON בלבד, עם השדות הבאים:
-            1. "analysis": טקסט (Markdown) הכולל ניתוח לפי מודל Coombs (סוג משבר), רמת חומרה (1-10) ואסטרטגיה מומלצת לפי אברהם וכתר.
-            2. "draft": טקסט נקי של התגובה המומלצת לפרסום (עד 60 מילים, בעברית, ללא כותרות).
-            """
+                    עליך להחזיר אובייקט JSON בלבד לפי המבנה הבא (ללא Markdown):
+                    {{
+                        "analysis": "טקסט הניתוח המלא (כולל סיווג קומבס, חומרה ואסטרטגיה)",
+                        "draft": "נוסח תגובה נקי לפרסום (עד 60 מילים)"
+                    }}
+                    """
 
             with st.spinner("מעבד נתונים ומנסח תגובה..."):
                 try:
                     model_name = get_available_model()
-                    model = genai.GenerativeModel(model_name)
-                    # בקשה לפורמט JSON (אם המודל תומך, אם לא הוא ינסה טקסט רגיל)
+
+                    # --- התיקון החשוב: הגדרת מצב JSON מובנה ---
+                    model = genai.GenerativeModel(
+                        model_name,
+                        generation_config={"response_mime_type": "application/json"}
+                    )
+
                     response = model.generate_content(prompt)
 
-                    # ניקוי המחרוזת ל-JSON תקין
-                    clean_json = response.text.replace("```json", "").replace("```", "").strip()
-                    data = json.loads(clean_json)
+                    # כעת אין צורך בניקוי ידני מסובך, הפלט הוא JSON טהור
+                    data = json.loads(response.text)
 
                     # שמירה בזיכרון
-                    st.session_state['analysis_result'] = data['analysis']
-                    st.session_state['draft_response'] = data['draft']
+                    st.session_state['analysis_result'] = data.get('analysis', 'לא התקבל ניתוח')
+                    st.session_state['draft_response'] = data.get('draft', 'לא התקבלה טיוטה')
 
                 except Exception as e:
                     st.error(f"שגיאה בעיבוד הנתונים: {e}")
-                    # Fallback במקרה שהמודל לא החזיר JSON
-                    st.session_state['analysis_result'] = response.text
-                    st.session_state['draft_response'] = "לא ניתן היה לחלץ טיוטה אוטומטית. נא לנסח ידנית."
+                    # במקרה חירום מציגים את הטקסט הגולמי כדי לא להשאיר מסך ריק
+                    st.session_state['analysis_result'] = response.text if 'response' in locals() else str(e)
+                    st.session_state['draft_response'] = "נא לנסח ידנית (שגיאה ב-AI)"
 
 # --- שלב ג': הצגת תוצאות ועריכה ---
-# כפתור הניתוח
-if st.button("🚨 נתח אירוע והכן תגובה", type="primary"):
-    st.session_state['analyzing'] = True
-    st.session_state['current_article'] = selected_article
+if st.session_state['analysis_result']:
+    st.markdown("---")
 
-    # --- שלב ב': הניתוח (המוח) ---
-    # שינוי לפרומפט: מגדירים במפורש את מבנה ה-JSON הרצוי
-    prompt = f"""
-    אתה מנהל משברים מומחה.
-    נתח את הידיעה: "{selected_article['title']}: {selected_article['body']}" עבור חברת {company_name}.
+    # עמודה ימנית: הניתוח האקדמי
+    col_analysis, col_action = st.columns([1, 1])
 
-    עליך להחזיר אובייקט JSON בלבד לפי המבנה הבא (ללא Markdown):
-    {{
-        "analysis": "טקסט הניתוח המלא (כולל סיווג קומבס, חומרה ואסטרטגיה)",
-        "draft": "נוסח תגובה נקי לפרסום (עד 60 מילים)"
-    }}
-    """
+    with col_analysis:
+        st.subheader("🧠 ניתוח אסטרטגי")
+        st.info(st.session_state['analysis_result'])
 
-    with st.spinner("מעבד נתונים ומנסח תגובה..."):
-        try:
-            model_name = get_available_model()
+    # עמודה שמאלית: ה-Action Item
+    with col_action:
+        st.subheader("✍️ ניהול תגובה")
 
-            # --- התיקון החשוב: הגדרת מצב JSON מובנה ---
-            model = genai.GenerativeModel(
-                model_name,
-                generation_config={"response_mime_type": "application/json"}
-            )
+        # שדה העריכה - כבר מכיל את הטקסט של ה-AI
+        final_text = st.text_area(
+            "ערוך את הטיוטה לפני הפצה:",
+            value=st.session_state['draft_response'],
+            height=200,
+            key="final_edit_area"
+        )
 
-            response = model.generate_content(prompt)
+        st.caption("💡 הלינקים למטה יתעדכנו אוטומטית כשתסיים להקליד (לחץ מחוץ לתיבה).")
 
-            # כעת אין צורך בניקוי ידני מסובך, הפלט הוא JSON טהור
-            data = json.loads(response.text)
+        # כפתורי שיתוף - צמודים לשדה העריכה
+        links = generate_share_links(final_text)
 
-            # שמירה בזיכרון
-            st.session_state['analysis_result'] = data.get('analysis', 'לא התקבל ניתוח')
-            st.session_state['draft_response'] = data.get('draft', 'לא התקבלה טיוטה')
-
-        except Exception as e:
-            st.error(f"שגיאה בעיבוד הנתונים: {e}")
-            # במקרה חירום מציגים את הטקסט הגולמי כדי לא להשאיר מסך ריק
-            st.session_state['analysis_result'] = response.text if 'response' in locals() else str(e)
-            st.session_state['draft_response'] = "נא לנסח ידנית (שגיאה ב-AI)"
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.link_button("X (Twitter)", links["X (Twitter)"], use_container_width=True)
+        with c2:
+            st.link_button("WhatsApp", links["WhatsApp"], use_container_width=True)
+        with c3:
+            st.link_button("Email", links["Email"], use_container_width=True)
