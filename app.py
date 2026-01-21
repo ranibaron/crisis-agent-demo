@@ -1,60 +1,145 @@
 import streamlit as st
+import google.generativeai as genai
+from duckduckgo_search import DDGS
+import urllib.parse
+from datetime import datetime
 
-# הגדרת כותרת ועיצוב הדף
-st.set_page_config(page_title="סוכן ניהול משברים", layout="wide")
+# --- הגדרות ראשוניות ---
+st.set_page_config(page_title="Crisis Guardian AI", layout="wide", page_icon="🛡️")
 
-st.title("🛡️ מערכת אא ניהול משברים - War Room")
+# טעינת מפתח API
+if "GOOGLE_API_KEY" in st.secrets:
+    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+else:
+    st.error("חסר מפתח GOOGLE_API_KEY בקובץ secrets.toml")
+    st.stop()
+
+
+# --- פונקציות עזר ---
+
+def search_news(query, limit=5):
+    """חיפוש חדשות מהרשת בחינם"""
+    results = []
+    try:
+        with DDGS() as ddgs:
+            # חיפוש חדשות מישראל ביומיים האחרונים ('d' = day, אפשר לשנות)
+            ddgs_news = ddgs.news(keywords=query, region="il-he", safesearch="off", max_results=limit)
+            for r in ddgs_news:
+                results.append(r)
+    except Exception as e:
+        st.error(f"שגיאה בחיפוש חדשות: {e}")
+    return results
+
+
+def generate_share_links(text, subject="עדכון ניהול משבר"):
+    """יצירת לינקים לשיתוף מהיר"""
+    encoded_text = urllib.parse.quote(text)
+    encoded_subject = urllib.parse.quote(subject)
+
+    links = {
+        "X (Twitter)": f"https://twitter.com/intent/tweet?text={encoded_text}",
+        "WhatsApp": f"https://wa.me/?text={encoded_text}",
+        "Email": f"mailto:?subject={encoded_subject}&body={encoded_text}",
+        "Facebook": "https://www.facebook.com/sharer/sharer.php"  # פייסבוק לא מאפשרים טקסט אוטומטי מטעמי ספאם, רק לינק
+    }
+    return links
+
+
+# --- ממשק משתמש ---
+
+st.title("🛡️ Crisis Guardian - מערכת ניהול משברים אוטונומית")
+st.markdown("מערכת סוכן המנטרת חדשות בזמן אמת, מזהה משברים ומייצרת מענה לפי מתודולוגיות Coombs ואברהם וכתר.")
 st.markdown("---")
 
-# חלוקת המסך לשתי עמודות
-col1, col2 = st.columns([1, 2])
+# סרגל צד - הגדרות
+with st.sidebar:
+    st.header("⚙️ הגדרות סוכן")
+    company_name = st.text_input("שם החברה לניטור", "אל על")
+    days_back = st.slider("טווח חיפוש (ימים)", 1, 7, 2)
+    st.info(f"הסוכן יחפש אזכורים של '{company_name}' בחדשות.")
 
-with col1:
-    st.header("1. הזנת נתונים")
-    st.info("הזן כאן מידע גולמי מהרשת לניתוח")
+# --- שלב 1: ניטור וחיפוש ---
+st.subheader(f"🕵️ ניטור רשת: {company_name}")
 
-    company_name = st.text_input("שם הארגון:", "אא ניהול משברים")
-    platform = st.selectbox("מקור הידיעה:", ["אתר חדשות", "פייסבוק", "טוויטר/X", "טיקטוק", "אחר"])
-    news_text = st.text_area("טקסט הידיעה / הפוסט החשוד:", height=250, placeholder="הדבק כאן את הטקסט...")
+if st.button("סרוק חדשות אחרונות 🔍", type="primary"):
+    with st.spinner("סורק את הרשת אחר אזכורים..."):
+        # חיפוש חדשות אמיתי
+        query = f"{company_name}"
+        news_results = search_news(query, limit=5)
+        st.session_state['news_results'] = news_results
 
-    analyze_btn = st.button("🚨 נתח אירוע וצור הנחיה ל-AI", type="primary")
+        if not news_results:
+            st.warning("לא נמצאו חדשות חדשות בטווח הזמן שנבחר.")
 
-with col2:
-    st.header("2. מנוע יצירת הנחיות (Prompt Engine)")
+# הצגת תוצאות החיפוש (אם יש בזיכרון)
+if 'news_results' in st.session_state and st.session_state['news_results']:
+    st.success(f"נמצאו {len(st.session_state['news_results'])} כתבות רלוונטיות.")
 
-    if analyze_btn and news_text:
-        st.success("הנתונים נקלטו. מייצר הנחיה לניתוח...")
+    selected_article = st.selectbox(
+        "בחר כתבה לניתוח עומק:",
+        options=st.session_state['news_results'],
+        format_func=lambda x: f"{x['title']} ({x['source']})"
+    )
 
-        # בניית הפרומפט המתוחכם (האלגוריתם שלך)
-        prompt_logic = f"""
-תפקידך: מומחה בכיר לניהול משברים ותקשורת אסטרטגית.
-הלקוח: {company_name}
-המקור: {platform}
+    if selected_article:
+        st.info(f"**תקציר:** {selected_article['body']}...")
+        st.markdown(f"[לקריאת הכתבה המלאה]({selected_article['url']})")
 
-טקסט האירוע לניתוח:
-"{news_text}"
+        # כפתור ניתוח לכתבה הספציפית
+        if st.button("🚨 הפעל נוהל ניתוח משבר (AI Analysis)"):
+            st.session_state['analyzing'] = True
+            st.session_state['current_article'] = selected_article
 
-עליך לבצע ניתוח מעמיק ולספק מענה בפורמט הבא:
+# --- שלב 2 ו-3: ניתוח משבר ופעולה ---
+if st.session_state.get('analyzing') and st.session_state.get('current_article'):
+    article = st.session_state['current_article']
 
-חלק 1: אבחון (מתודולוגיית SCCT - Coombs)
-- סווג את המשבר (Victim / Accidental / Preventable).
-- הערך את רמת האחריות (Low / High).
-- הערך את רמת הסיכון למוניטין (1-10).
+    st.markdown("---")
+    st.subheader("🧠 ניתוח המצב והמלצות פעולה")
 
-חלק 2: אסטרטגיית תגובה (מודל אברהם וכתר)
-- בחר את האסטרטגיה המובילה (הכחשה / בידול / הפחתה / התנצלות / שינוי נרטיב).
-- הסבר מדוע אסטרטגיה זו מתאימה לפרופיל המשבר שזוהה.
+    prompt = f"""
+    אתה יועץ תקשורת בכיר המתמחה בניהול משברים.
+    הלקוח: חברת "{company_name}".
+    הידיעה החדשותית: "{article['title']}: {article['body']}"
 
-חלק 3: תוצרים לפרסום מיידי
-1. נוסח תגובה רשמי לעיתונות (Tone: רשמי, אחראי).
-2. נוסח ציוץ/פוסט לרשתות החברתיות (Tone: אמפתי, ישיר).
-"""
+    עליך לבצע את המשימות הבאות:
+    1. **האם זה משבר?** (כן/לא) והערכת חומרה (1-10).
+    2. **סיווג (Coombs SCCT):** האם זה Victim, Accidental, או Preventable? הסבר בקצרה.
+    3. **אסטרטגיה (אברהם וכתר):** מהי האסטרטגיה המומלצת? (למשל: התנצלות מלאה, הכחשה, עמימות, Bolstering, וכו').
+    4. **ניסוח תגובה:** כתוב הודעה מומלצת לעיתונות/רשתות חברתיות שמונעת הסלמה.
 
-        st.text_area("העתק את ההנחיה (Prompt) והדבק ב-Gemini:", value=prompt_logic, height=400)
-        st.caption("טיפ: לחץ בתוך התיבה ועל Ctrl+A ואז Ctrl+C להעתקה מהירה.")
+    החזר את התשובה בפורמט Markdown מסודר.
+    """
 
-    elif analyze_btn and not news_text:
-        st.error("נא להזין את טקסט הידיעה לפני הניתוח.")
+    with st.spinner("ג'מיני מנתח את המשבר לפי המודלים האקדמיים..."):
+        try:
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            response = model.generate_content(prompt)
+            ai_output = response.text
 
-    else:
-        st.info("ממתין להזנת נתונים...")
+            # הצגת הניתוח
+            st.markdown(ai_output)
+
+            # חילוץ התגובה (ניסיון פשטני לקחת את החלק האחרון או לתת למשתמש לערוך)
+            st.markdown("---")
+            st.subheader("📢 הפצת תגובה מיידית")
+
+            final_response = st.text_area("ערוך את התגובה לפני הפצה:", value="העתק לכאן את התגובה המוצעת מלמעלה...",
+                                          height=150)
+
+            # כפתורי שיתוף
+            links = generate_share_links(final_response, subject=f"תגובה רשמית: {article['title']}")
+
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                st.link_button("X (Twitter)", links["X (Twitter)"])
+            with c2:
+                st.link_button("WhatsApp", links["WhatsApp"])
+            with c3:
+                st.link_button("Email Draft", links["Email"])
+            with c4:
+                if st.button("📋 העתק ללוח"):
+                    st.write("הטקסט הועתק! (סימולציה)")  # Streamlit מגביל גישה ללוח, בד"כ המשתמש מעתיק ידנית
+
+        except Exception as e:
+            st.error(f"שגיאה בניתוח ה-AI: {e}")
