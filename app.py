@@ -45,6 +45,22 @@ def generate_share_links(text, subject="עדכון ניהול משבר"):
     return links
 
 
+def get_available_model():
+    """פונקציה שמוצאת אוטומטית מודל זמין בחשבון שלך"""
+    try:
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                # מעדיף את פלאש כי הוא מהיר, אם לא - לוקח את פרו
+                if 'flash' in m.name:
+                    return m.name
+                if 'pro' in m.name:
+                    return m.name
+        # ברירת מחדל אם לא מצא לוגיקה
+        return 'models/gemini-pro'
+    except Exception as e:
+        return 'models/gemini-pro'
+
+
 # --- ממשק משתמש ---
 
 st.title("🛡️ Crisis Guardian - מערכת ניהול משברים אוטונומית")
@@ -113,7 +129,11 @@ if st.session_state.get('analyzing') and st.session_state.get('current_article')
 
     with st.spinner("ג'מיני מנתח את המשבר לפי המודלים האקדמיים..."):
         try:
-            model = genai.GenerativeModel('gemini-pro')
+            # שימוש בפונקציה החדשה למציאת מודל
+            model_name = get_available_model()
+            # st.write(f"Using model: {model_name}") # אפשר להוריד את ההערה לדיבאגינג
+
+            model = genai.GenerativeModel(model_name)
             response = model.generate_content(prompt)
             ai_output = response.text
 
