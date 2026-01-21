@@ -1,0 +1,9 @@
+# התעלמות מקבצי סודות
+.streamlit/secrets.toml
+.env
+
+# התעלמות מקבצי מערכת של פייתון
+__pycache__/
+*.py[cod]
+venv/
+.idea/
