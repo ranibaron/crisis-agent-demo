@@ -158,37 +158,45 @@ if 'news_results' in st.session_state and st.session_state['news_results']:
                     st.session_state['draft_response'] = "לא ניתן היה לחלץ טיוטה אוטומטית. נא לנסח ידנית."
 
 # --- שלב ג': הצגת תוצאות ועריכה ---
-if st.session_state['analysis_result']:
-    st.markdown("---")
+# כפתור הניתוח
+if st.button("🚨 נתח אירוע והכן תגובה", type="primary"):
+    st.session_state['analyzing'] = True
+    st.session_state['current_article'] = selected_article
 
-    # עמודה ימנית: הניתוח האקדמי
-    col_analysis, col_action = st.columns([1, 1])
+    # --- שלב ב': הניתוח (המוח) ---
+    # שינוי לפרומפט: מגדירים במפורש את מבנה ה-JSON הרצוי
+    prompt = f"""
+    אתה מנהל משברים מומחה.
+    נתח את הידיעה: "{selected_article['title']}: {selected_article['body']}" עבור חברת {company_name}.
 
-    with col_analysis:
-        st.subheader("🧠 ניתוח אסטרטגי")
-        st.info(st.session_state['analysis_result'])
+    עליך להחזיר אובייקט JSON בלבד לפי המבנה הבא (ללא Markdown):
+    {{
+        "analysis": "טקסט הניתוח המלא (כולל סיווג קומבס, חומרה ואסטרטגיה)",
+        "draft": "נוסח תגובה נקי לפרסום (עד 60 מילים)"
+    }}
+    """
 
-    # עמודה שמאלית: ה-Action Item
-    with col_action:
-        st.subheader("✍️ ניהול תגובה")
+    with st.spinner("מעבד נתונים ומנסח תגובה..."):
+        try:
+            model_name = get_available_model()
 
-        # שדה העריכה - כבר מכיל את הטקסט של ה-AI
-        final_text = st.text_area(
-            "ערוך את הטיוטה לפני הפצה:",
-            value=st.session_state['draft_response'],
-            height=200,
-            key="final_edit_area"
-        )
+            # --- התיקון החשוב: הגדרת מצב JSON מובנה ---
+            model = genai.GenerativeModel(
+                model_name,
+                generation_config={"response_mime_type": "application/json"}
+            )
 
-        st.caption("💡 הלינקים למטה יתעדכנו אוטומטית כשתסיים להקליד (לחץ מחוץ לתיבה).")
+            response = model.generate_content(prompt)
 
-        # כפתורי שיתוף - צמודים לשדה העריכה
-        links = generate_share_links(final_text)
+            # כעת אין צורך בניקוי ידני מסובך, הפלט הוא JSON טהור
+            data = json.loads(response.text)
 
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.link_button("X (Twitter)", links["X (Twitter)"], use_container_width=True)
-        with c2:
-            st.link_button("WhatsApp", links["WhatsApp"], use_container_width=True)
-        with c3:
-            st.link_button("Email", links["Email"], use_container_width=True)
+            # שמירה בזיכרון
+            st.session_state['analysis_result'] = data.get('analysis', 'לא התקבל ניתוח')
+            st.session_state['draft_response'] = data.get('draft', 'לא התקבלה טיוטה')
+
+        except Exception as e:
+            st.error(f"שגיאה בעיבוד הנתונים: {e}")
+            # במקרה חירום מציגים את הטקסט הגולמי כדי לא להשאיר מסך ריק
+            st.session_state['analysis_result'] = response.text if 'response' in locals() else str(e)
+            st.session_state['draft_response'] = "נא לנסח ידנית (שגיאה ב-AI)"
