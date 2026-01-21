@@ -113,7 +113,7 @@ if st.session_state.get('analyzing') and st.session_state.get('current_article')
 
     with st.spinner("ג'מיני מנתח את המשבר לפי המודלים האקדמיים..."):
         try:
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-pro')
             response = model.generate_content(prompt)
             ai_output = response.text
 
